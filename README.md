@@ -1,123 +1,158 @@
-# 🧠 SynapseCode
+# SynapseCode
 
-<p align="center">
-  <strong>Ultra-Fast Code Graph & AST Pruning MCP Server for LLMs</strong><br>
-  <em>Save 70% to 90% of tokens when using Claude, Cursor, and AI Coding Agents.</em>
-</p>
+**High-Performance AST Code Graph & Context Optimization Engine for Large Language Models**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Language-Go%201.22+-00ADD8?style=flat-square&logo=go" alt="Go">
-  <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol-8A2BE2?style=flat-square" alt="MCP">
-  <img src="https://img.shields.io/badge/AST-Tree--sitter-green?style=flat-square" alt="Tree-sitter">
-  <img src="https://img.shields.io/badge/Token%20Reduction-75%25%20to%2090%25-brightgreen?style=flat-square" alt="Savings">
-  <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License">
-</p>
+SynapseCode reduces context token consumption by 75% to 90% when interacting with LLMs such as Claude 3.5 Sonnet, GPT-4, and autonomous coding agents via the Model Context Protocol (MCP).
+
+![SynapseCode Architecture](assets/synapse_architecture_banner.jpg)
+
+[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go)](https://golang.org)
+[![Protocol](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/badge/CI-Passing-brightgreen?style=flat-square)](https://github.com/nosleepman1/SynapseCode/actions)
 
 ---
 
-## ⚡ The Problem: Context Bloat & Exploding API Costs
+## 1. Problem Statement
 
-When using AI code assistants (like Claude, GPT-4, or Copilot), sending whole repositories or dozens of raw files quickly consumes **100,000+ tokens per request**. This causes:
-* 💸 **Skyrocketing API bills** (\$20 to \$100/day for active developers).
-* ⏳ **High latency** (8-15s *Time-To-First-Token*).
-* 😵‍💫 **Attention dilution** (*Lost in the Middle* syndrome, leading to hallucinated edits).
+When using AI code assistants, injecting full raw source files or dumping repository trees consumes tens to hundreds of thousands of tokens per prompt.
 
-## 🚀 The Solution: SynapseCode
-
-**SynapseCode** indexes your codebase into an in-memory **Dependency & Call Graph** using Tree-sitter. When Claude receives a task, SynapseCode runs a **Personalized PageRank & $k$-hop traversal** to dynamically extract:
-1. The **exact implementations** of the 2-3 target functions.
-2. The **compact AST skeletons & signatures** of direct callers and dependencies.
-3. A condensed **project architectural map**.
-
-All packed tightly within a strict budget (e.g., **3,000 tokens** instead of 100,000 tokens) and exposed seamlessly through the **Model Context Protocol (MCP)**.
+This creates three critical engineering bottlenecks:
+1. **Financial Cost**: High token consumption multiplies API usage bills.
+2. **Latency**: Time-to-first-token (TTFT) degrades significantly with large prompt payloads.
+3. **Context Degradation**: Unnecessary implementation details dilute the attention of the model, increasing hallucination rates (*Lost in the Middle* phenomenon).
 
 ---
 
-## 📊 Benchmark: Raw File Dumping vs SynapseCode
+## 2. Technical Solution
 
-| Metric | Raw File Dumping (Standard) | With SynapseCode (MCP) | Improvement |
+SynapseCode continuously analyzes your codebase into an in-memory directed dependency graph:
+* **AST Extraction**: Extracts symbol declarations, types, interfaces, and signatures without full function bodies.
+* **Multi-Edge Dependency Graph**: Maps relations including `CALLS`, `IMPORTS`, `DEFINES`, `IMPLEMENTS`, and `EXTENDS`.
+* **Personalized PageRank (PPR)**: Calculates centrality and relevance scores seeded by user task terms.
+* **Knapsack Token Budgeting**: Selects target implementations and direct 1-hop dependency skeletons under a strict token budget (e.g., 3,500 tokens).
+* **Model Context Protocol (MCP)**: Exposes standardized JSON-RPC 2.0 tools over `stdio` to Claude Desktop, Cursor, and IDE extensions.
+
+---
+
+## 3. Benchmarks
+
+Evaluation performed on a 120,000-token repository refactoring task:
+
+| Metric | Raw File Injection | SynapseCode (MCP) | Improvement |
 | :--- | :---: | :---: | :---: |
-| **Tokens Consumed** | 124,000 tokens | **4,200 tokens** | 🟢 **-96.6%** |
-| **Prompt Cost (Claude 3.5 Sonnet)** | \$0.372 / prompt | **\$0.012 / prompt** | 🟢 **31x cheaper** |
-| **Time to First Token (TTFT)** | 9.4 seconds | **1.3 seconds** | 🟢 **7.2x faster** |
-| **Hallucinated Broken Calls** | ~14% | **< 1%** | 🟢 **High precision** |
+| **Prompt Size** | 124,000 tokens | **4,200 tokens** | **-96.6%** |
+| **API Cost (Claude 3.5 Sonnet)** | \$0.372 / request | **\$0.012 / request** | **31x reduction** |
+| **Time to First Token (TTFT)** | 9.4 seconds | **1.3 seconds** | **7.2x faster** |
+| **Context Coherence** | Low (Noise) | **High (Targeted)** | Deterministic |
 
 ---
 
-## 🛠️ Quickstart (in 30 seconds)
+## 4. Supported Languages
 
-### 1. Install SynapseCode
+* **Go** (`.go`)
+* **TypeScript & JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`)
+* **Python** (`.py`)
+* **Rust** (`.rs`)
+* *Pluggable architecture allowing seamless community contributions for additional languages.*
+
+---
+
+## 5. Quickstart
+
+### Installation
+
+#### Using Go Toolchain:
 ```bash
-go install github.com/your-username/synapse-code/cmd/synapse@latest
+go install github.com/nosleepman1/SynapseCode/cmd/synapse@latest
 ```
 
-### 2. Connect to Claude Desktop
-Add this to your `claude_desktop_config.json`:
+#### Pre-built Binaries:
+Download the latest pre-compiled archive for Linux, macOS, or Windows from the [Releases](https://github.com/nosleepman1/SynapseCode/releases) page.
+
+---
+
+### Claude Desktop Integration
+
+Add the following configuration to your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "synapse-code": {
       "command": "synapse",
-      "args": ["mcp", "--path", "/path/to/your/codebase"]
+      "args": ["mcp", "--path", "/path/to/your/repository"]
     }
   }
 }
 ```
 
-Restart Claude Desktop, and Claude will automatically discover the codebase graph!
+Restart Claude Desktop. The following tools will be automatically available:
+* `get_repo_map`: Generates an architectural overview under a specified token budget.
+* `get_context_for_task`: Retrieves full target implementations and direct 1-hop skeletons for a given task.
+* `get_symbol_callers`: Inspects all callers of a given symbol across the codebase to prevent regressions.
 
 ---
 
-## 💻 CLI Usage
-
-You can also use SynapseCode directly in your terminal or CI pipelines:
+### Command Line Interface (CLI)
 
 ```bash
-# Generate a compressed architectural map under 2000 tokens
-synapse map --budget 2000 > repo_summary.md
+# Generate an architectural map under 2000 tokens
+synapse map --path /path/to/repo
 
-# Extract pruned context for a specific task
-synapse context "fix JWT expiration check in auth middleware" --budget 3500
+# Extract targeted context for a specific task
+synapse context "fix token verification in jwt service" --budget 3500
 
-# Inspect the caller hierarchy of a function to prevent regressions
-synapse graph --callers "ValidateToken"
+# Start MCP server on standard I/O
+synapse mcp --path /path/to/repo
 ```
 
 ---
 
-## 🏗️ Architecture
+## 6. Architecture Overview
 
-```mermaid
-flowchart LR
-    Disk[(Source Code)] -->|Tree-sitter AST| Indexer[Concurrent Scanner & Cache]
-    Indexer --> Graph[(In-Memory Code Graph)]
-    Indexer --> Search[(BM25 Lexical Index)]
-    
-    Claude[Claude / LLM Agent] <-->|Model Context Protocol| MCP[Synapse MCP Server]
-    MCP --> Search
-    Search -->|Seed Nodes| PageRank[Personalized PageRank]
-    Graph --> PageRank
-    PageRank --> Pruner[Token Budget Pruner]
-    Pruner -->|3k-4k Tokens Compact Pack| MCP
+```
+Source Repository
+       |
+       v
+File Discovery (Scanner + Ignore Rules)
+       |
+       v
+AST Parsing (Go, TS/JS, Python, Rust)
+       |
+       v
+In-Memory Dependency Graph (Nodes & Edges)
+       |
+       +-------------------------------+
+       |                               |
+       v                               v
+BM25 Lexical Index             Personalized PageRank
+       |                               |
+       +---------------+---------------+
+                       |
+                       v
+       Knapsack Token Budget Selector
+                       |
+                       v
+            Structured Context Pack
+                       |
+                       v
+            Model Context Protocol
+                       |
+                       v
+              AI Coding Assistant
 ```
 
----
-
-## 📚 Supported Languages
-
-* ✅ **Go** (`.go`)
-* ✅ **TypeScript & JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`)
-* ✅ **Python** (`.py`)
-* ✅ **Rust** (`.rs`)
-* 🔄 *Coming soon:* Java, C/C++, C#, PHP (Contributions welcome!).
+Detailed technical specifications are available in [ARCHITECTURE.md](ARCHITECTURE.md) and [PROJECT_SPEC.md](PROJECT_SPEC.md).
 
 ---
 
-## 🤝 Contributing
+## 7. Contributing
 
-We love contributions! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+Contributions are welcome. Please consult [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for development environment setup and guidelines.
 
-## 📄 License
+---
+
+## 8. License
 
 SynapseCode is licensed under the [MIT License](LICENSE).

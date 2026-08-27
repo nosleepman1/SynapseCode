@@ -1,114 +1,79 @@
-# Guide de Contribution (CONTRIBUTING.md)
+# Contributor Guide
 
-Merci de vous intéresser à la contribution de **SynapseCode** ! Ce projet a été conçu pour être facilement extensible, propre et accueillant pour les mainteneurs open-source.
+Thank you for contributing to **SynapseCode**. This document outlines the engineering guidelines, testing protocols, and pull request standards for maintainers and contributors.
 
 ---
 
-## Prérequis de Développement
+## 1. Development Prerequisites
 
-* **Go** $\ge$ 1.22
-* **Make**
-* **golangci-lint** $\ge$ v1.58
+* **Go**: Version 1.22 or higher
 * **Git**
+* **golangci-lint**: Version 1.58 or higher
+* **Make**
 
-Pour cloner et préparer l'environnement local :
+To initialize the development environment:
 ```bash
-git clone https://github.com/your-username/synapse-code.git
-cd synapse-code
+git clone https://github.com/nosleepman1/SynapseCode.git
+cd SynapseCode
 go mod download
 ```
 
 ---
 
-##  Commandes Essentielles (`Makefile`)
+## 2. Common Build & Test Targets
 
-Nous utilisons un `Makefile` standard pour toutes les tâches d'ingénierie :
+The `Makefile` defines standard engineering commands:
 
 ```bash
-# Compiler le binaire localement
+# Compile binary locally
 make build
 
-# Exécuter tous les tests unitaires avec détection de race conditions
+# Run unit tests with race detection
 make test
 
-# Lancer la suite de benchmarks de performance (parsing & indexation)
+# Run benchmarks
 make bench
 
-# Vérifier la conformité du code avec golangci-lint
+# Run linter checks
 make lint
-
-# Lancer le serveur MCP en local pour tester avec un projet
-make run-mcp PATH=/chemin/vers/un/projet
 ```
 
 ---
 
-## Comment Ajouter le Support d'un Nouveau Langage
+## 3. Adding Support for a New Language
 
-L'architecture est 100% découplée. Pour ajouter un nouveau langage (ex: **Java** ou **C#**) :
+SynapseCode is designed to be easily extensible. To add a new programming language (e.g., C# or Java):
 
-### Étape 1 : Créer le package dans `internal/ast/<langage>/`
-Créez `internal/ast/java/parser.go` :
-
-```go
-package java
-
-import (
-    "context"
-    "synapse-code/internal/ast"
-    sitter "github.com/tree-sitter/go-tree-sitter"
-    // Import du binding tree-sitter java
-)
-
-type Parser struct {
-    language *sitter.Language
-}
-
-func New() *Parser {
-    return &Parser{/* ... */}
-}
-
-func (p *Parser) Language() string {
-    return "java"
-}
-
-func (p *Parser) Extensions() []string {
-    return []string{".java"}
-}
-
-func (p *Parser) Parse(ctx context.Context, path string, content []byte) (*ast.FileAST, error) {
-    // 1. Parser le contenu avec Tree-sitter
-    // 2. Extraire les classes, méthodes, interfaces et imports
-    // 3. Retourner la structure *ast.FileAST
-    return nil, nil
-}
-```
-
-### Étape 2 : Enregistrer le parser dans `internal/ast/registry.go`
-```go
-func init() {
-    DefaultRegistry.Register(java.New())
-}
-```
-
-### Étape 3 : Ajouter un cas de test dans `testdata/sample-java/`
-Ajoutez un fichier de test Java représentatif et écrivez un test unitaire validant l'extraction correcte des symboles et des appels de méthodes.
+1. Create a new package under `internal/ast/<language>/`.
+2. Implement the `ast.Parser` interface:
+   ```go
+   type Parser interface {
+       Language() model.Language
+       Extensions() []string
+       Parse(ctx context.Context, fileID model.FileID, filePath string, content []byte) (*ast.ParsedFile, error)
+   }
+   ```
+3. Register your parser instance in `internal/mcp/server.go` and `internal/cli/root.go`:
+   ```go
+   reg.Register(yourlanguage.NewParser())
+   ```
+4. Add comprehensive unit tests in `internal/ast/<language>/parser_test.go`.
 
 ---
 
-## Règles & Standards de Code
+## 4. Engineering Standards
 
-1. **Zéro allocation inutile dans les boucles chaudes** : Les fonctions d'indexation et de parsing traitent des millions de lignes de code. Privilégiez les buffers réutilisables (`sync.Pool`) et évitez les allocations d'objets superflues.
-2. **Gestion d'erreur explicite avec `%w`** : Toujours envelopper les erreurs pour préserver la stack (`fmt.Errorf("ast parse failed: %w", err)`).
-3. **Concurrence sûre** : Toute structure partagée entre Goroutines doit être protégée par un `sync.RWMutex` ou passer par des canaux (`channels`).
-4. **Couverture de tests** : Toute nouvelle fonctionnalité ou correction de bug doit comporter un test unitaire (`_test.go`).
+* **Error Wrapping**: Wrap contextual errors using `%w` (`fmt.Errorf("failed to parse file: %w", err)`).
+* **Concurrency Safety**: Synchronize shared state using `sync.RWMutex` or channel-based communication.
+* **Deterministic Behavior**: Ensure stable sorting algorithms are used on graph node lists.
+* **Memory Optimization**: Avoid unnecessary heap allocations in hot loop indexers.
 
 ---
 
-## Checklist avant de Soumettre une Pull Request (PR)
+## 5. Pull Request Checklist
 
-- [ ] `make test` passe sans aucune erreur ni race condition (`-race`).
-- [ ] `make lint` ne remonte aucun avertissement.
-- [ ] `make bench` ne montre aucune régression de vitesse sur l'indexation.
-- [ ] Les nouveaux fichiers publics sont commentés conformément aux conventions `godoc`.
-- [ ] Votre branche est rebasée sur la dernière version de `main`.
+Before opening a pull request, ensure:
+- [ ] `go test -race ./...` passes without errors.
+- [ ] `golangci-lint run ./...` reports zero warnings.
+- [ ] New functionality is covered by unit tests.
+- [ ] Documentation is updated accordingly.

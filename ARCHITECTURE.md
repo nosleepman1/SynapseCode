@@ -1,153 +1,100 @@
-# ARCHITECTURE TECHNIQUE & ALGORITHMES: SynapseCode
+# Technical Architecture & Algorithms: SynapseCode
 
-> **Document de Référence Technique pour Architectes et Développeurs**  
-> *Décrit le modèle mathématique de graphe, les algorithmes d'élagage de contexte et le protocole de communication MCP.*
-
----
-
-## 1. Vue d'Ensemble des Flux de Données
+## 1. System Pipeline and Data Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Dev as Développeur / Utilisateur
-    participant Claude as Claude Desktop / Code Agent
-    participant MCP as Serveur MCP (SynapseCode)
-    participant Search as Moteur BM25
-    participant Graph as Graphe de Dépendances
-    participant Pruner as Algorithme d'Élagage (PageRank)
-    participant Disk as Base de Code Locale
+    actor Developer as Developer
+    participant Assistant as Claude / AI Agent
+    participant MCP as SynapseCode MCP Server
+    participant Search as BM25 Scorer
+    participant Graph as Dependency Graph
+    participant Pruner as Knapsack Token Pruner
+    participant Storage as Local File Index
 
-    Note over MCP,Disk: Phase 1: Indexation Concurrente en Arrière-Plan
-    MCP->>Disk: Scan parallèle des fichiers (ignorer .gitignore)
-    Disk-->>MCP: Contenu des fichiers sources
-    MCP->>MCP: Parsing AST (Tree-sitter) & Invalidation Cache SHA-256
-    MCP->>Graph: Construction Nœuds (Symboles) & Arêtes (Appels/Imports)
-    MCP->>Search: Indexation BM25 des Noms & Signatures
+    Note over MCP,Storage: Phase 1: Background Indexing & Cache
+    MCP->>Storage: Scan repository & parse AST
+    Storage-->>MCP: Parsed File ASTs
+    MCP->>Graph: Build Vertices (Symbols) & Edges (Calls/Imports)
+    MCP->>Search: Index Signatures and Identifier Terms
 
-    Note over Dev,Claude: Phase 2: Requête Utilisateur
-    Dev->>Claude: "Corrige le bug de validation du token JWT dans auth.ts"
-    Claude->>MCP: Tool Call: get_context_for_task(query="validation token JWT auth.ts", max_tokens=3500)
-    
-    Note over MCP,Pruner: Phase 3: Résolution & Élagage Intelligent
-    MCP->>Search: Recherche lexicale des symboles d'entrée
-    Search-->>MCP: Symboles clés trouvés (AuthService, ValidateJWT, TokenPayload)
-    MCP->>Graph: Extraction du sous-graphe & Calcul du PageRank Personnalisé
-    Graph-->>Pruner: Top-K Symboles & Fichiers triés par score d'importance
-    Pruner->>Pruner: Remplissage du budget (3 500 tokens max) via Squelettes AST
-    Pruner-->>MCP: Pack de contexte compressé & formaté
-    
-    MCP-->>Claude: Réponse Tool (3 200 tokens de contexte ultra-ciblé)
-    Claude-->>Dev: Réponse précise, rapide et sans hallucination
+    Note over Developer,Assistant: Phase 2: User Coding Task
+    Developer->>Assistant: "Fix token verification in jwt service"
+    Assistant->>MCP: Tool Call: get_context_for_task(query="token verification jwt service", budget=3500)
+
+    Note over MCP,Pruner: Phase 3: Ranking & Token Budgeting
+    MCP->>Search: Score nodes for seed terms
+    Search-->>MCP: Initial seed nodes
+    MCP->>Graph: Execute Personalized PageRank
+    Graph-->>Pruner: Ranked Nodes by Centrality & Task Relevance
+    Pruner->>Pruner: Pack target full bodies + 1-hop dependency skeletons (<= 3500 tokens)
+    Pruner-->>MCP: Compact Context Pack
+
+    MCP-->>Assistant: Tool Response (Structured Context Pack)
+    Assistant-->>Developer: Accurate, hallucination-free response
 ```
 
 ---
 
-## 2. Modèle Mathématique du Graphe de Code
+## 2. Graph Mathematical Formulation
 
-Le code source est modélisé sous forme d'un **Graphe Orienté Multi-Attributs** :
+The codebase is represented as a directed multi-edge graph:
 $$G = (V, E)$$
 
-### Nœuds ($V$) :
-Chaque nœud $v \in V$ représente une entité du code :
-* **Type $v_{\text{type}}$** : `FILE`, `CLASS`, `STRUCT`, `INTERFACE`, `FUNCTION`, `METHOD`, `TYPE_ALIAS`.
-* **Attributs** :
-  * `path` : Chemin du fichier source.
-  * `signature` : Déclaration sans le corps (ex: `func Verify(token string) (*Claims, error)`).
-  * `docstring` : Commentaires et documentation associée.
-  * `body_range` : Lignes de début et fin de l'implémentation brute.
-  * `token_cost_full` : Coût en tokens du code complet.
-  * `token_cost_skeleton` : Coût en tokens de la signature seule.
+### 2.1 Vertices ($V$)
+A vertex $v \in V$ represents a file or code symbol:
+* Attributes: `ID`, `FilePath`, `SymbolName`, `Kind`, `Signature`, `Documentation`, `TokenCostFull`, `TokenCostSkeleton`.
 
-### Arêtes ($E$) :
-Chaque arête $e = (u, v) \in E$ représente une relation dirigée de $u$ vers $v$ avec un type et un poids :
-* `CALLS` ($w = 1.0$) : La fonction $u$ appelle la fonction $v$.
-* `IMPORTS` ($w = 0.5$) : Le fichier $u$ importe le fichier/module $v$.
-* `IMPLEMENTS` ($w = 1.2$) : La struct/classe $u$ implémente l'interface $v$.
-* `EXTENDS` ($w = 1.2$) : La classe $u$ hérite de la classe $v$.
-* `CONTAINS` ($w = 0.8$) : Le fichier $u$ déclare le symbole $v$.
+### 2.2 Edges ($E$)
+An edge $e = (u, v) \in E$ denotes a directed relationship:
+* `CALLS`: Function $u$ invokes function $v$ ($w = 1.0$).
+* `IMPORTS`: File $u$ imports module $v$ ($w = 0.5$).
+* `DEFINES`: File $u$ declares symbol $v$ ($w = 1.0$).
+* `IMPLEMENTS`: Struct $u$ implements interface $v$ ($w = 1.2$).
+* `EXTENDS`: Class $u$ inherits from class $v$ ($w = 1.2$).
 
 ---
 
-## 3. Algorithme de PageRank Personnalisé (PPR)
+## 3. Personalized PageRank Algorithm
 
-Lorsqu'une tâche $Q$ est soumise par l'utilisateur :
+Given a task query $Q$:
 
-1. **Vecteur de Téléportation initial $\mathbf{p}_0$** :
-   Le moteur BM25 calcule un score de similarité $s(v, Q)$ pour chaque nœud $v$. Le vecteur initial est normalisé :
+1. **Personalization Vector ($\mathbf{p}_0$)**:
+   BM25 lexical scoring computes relevance score $s(v, Q)$ for each node $v \in V$.
    $$\mathbf{p}_0(v) = \frac{s(v, Q)}{\sum_{u \in V} s(u, Q)}$$
 
-2. **Itération de PageRank avec Facteur d'Amortissement ($\alpha = 0.85$)** :
+2. **Power Iteration ($\alpha = 0.85$)**:
    $$\mathbf{p}_{k+1} = \alpha \mathbf{M}^T \mathbf{p}_k + (1 - \alpha) \mathbf{p}_0$$
-   où $\mathbf{M}$ est la matrice de transition stochastique des arêtes de dépendance.
+   where $\mathbf{M}$ is the row-normalized transition matrix.
 
-3. **Convergence** :
-   Après 15 à 20 itérations (quelques millisecondes en Go), le vecteur $\mathbf{p}^*$ fournit le classement de pertinence de chaque fonction et fichier du projet par rapport à la tâche de l'utilisateur.
-
----
-
-## 4. Algorithme d'Élagage et Remplissage du Budget (Token Knapsack)
-
-Une fois les nœuds classés par pertinence décroissante $v_1, v_2, \dots, v_n$ :
-
-```
-Entrée: BudgetMax (ex: 3500 tokens), Nœuds triés [v_1, v_2, ...]
-Sortie: Contexte Markdown condensé
-
-BudgetRestant = BudgetMax
-Pour chaque nœud v_i dans l'ordre de pertinence:
-    Si v_i est le Nœud Cible Principal (Top 1 à 3):
-        Si CoûtComplet(v_i) <= BudgetRestant:
-            Ajouter CodeComplet(v_i)
-            BudgetRestant -= CoûtComplet(v_i)
-        Sinon:
-            Ajouter Squelette(v_i)
-            BudgetRestant -= CoûtSquelette(v_i)
-    Sinon (Nœud Voisin / Dépendance de 1er saut):
-        Si CoûtSquelette(v_i) <= BudgetRestant:
-            Ajouter Squelette(v_i)
-            BudgetRestant -= CoûtSquelette(v_i)
-
-Si BudgetRestant >= 300 tokens:
-    Ajouter RepoMapCondensée(BudgetRestant)
-```
+3. **Convergence**:
+   Iteration terminates when $||\mathbf{p}_{k+1} - \mathbf{p}_k||_1 < 10^{-6}$ or maximum iterations ($25$) are reached.
+   Sorting is deterministically stabilized with secondary node ID tie-breaking.
 
 ---
 
-## 5. Invalidation de Cache & Indexation Incrémentale
+## 4. Knapsack Selection and Token Budgeting
 
-Pour garantir une réactivité instantanée même sur des projets de 500 000 lignes de code :
-
-1. **Table d'empreintes SHA-256** :
-   Chaque fichier est indexé avec un hash SHA-256 de son contenu et son `mtime`.
-2. **Scan différentiel** :
-   Au démarrage ou lors d'un événement `fsnotify` :
-   - Fichier inchangé $\to$ Zéro ré-analyse AST.
-   - Fichier modifié $\to$ Suppression des anciens nœuds/arêtes liés à ce fichier dans le graphe, ré-analyse Tree-sitter du fichier uniquement (5ms), et ré-insertion des nouvelles arêtes.
+Let $B$ be the maximum token budget (e.g., $3,500$ tokens):
+1. **Primary Targets**: The top ranked nodes (up to 3) include full implementation bodies if available.
+2. **First-Hop Dependencies**: Adjacent callers and callees are represented solely as signatures and type declarations.
+3. **Budget Constraint**: The selector terminates as soon as adding the next element would exceed $B - 200$ tokens (reserving buffer for Markdown formatting headers).
 
 ---
 
-## 6. Spécification des Outils MCP (Model Context Protocol)
+## 5. Model Context Protocol Specification
 
-Le serveur SynapseCode expose 3 outils normalisés via JSON-RPC 2.0 :
+SynapseCode implements JSON-RPC 2.0 protocol over standard input/output (`stdio`), exposing three primary tools:
 
-### Outil 1 : `get_repo_map`
-* **Description** : Renvoie la carte structurelle compacte du projet (arborescence des répertoires, interfaces et fonctions maîtresses).
-* **Paramètres** :
-  - `budget_tokens` *(integer, optional, default: 2000)* : Budget maximal alloué.
-* **Sortie** : Markdown structuré avec balises de code.
+### `get_repo_map`
+* **Description**: Returns an overview of total files, symbols, and architectural components under a token budget.
+* **Parameters**: `budget_tokens` (number, optional, default: 2000).
 
-### Outil 2 : `get_context_for_task`
-* **Description** : Analyse la tâche demandée, traverse le graphe de dépendances et renvoie le code source exact des fonctions cibles accompagné des squelettes de leurs dépendances directes.
-* **Paramètres** :
-  - `task_description` *(string, required)* : Description ou prompt de la tâche.
-  - `budget_tokens` *(integer, optional, default: 3500)* : Budget de tokens.
-  - `include_callers` *(boolean, optional, default: true)* : Inclure les appelants pour éviter les régressions.
-* **Sortie** : Fichiers cibles avec implémentation + signatures des voisins.
+### `get_context_for_task`
+* **Description**: Extracts relevant target implementations and 1-hop skeletons for a specific task.
+* **Parameters**: `task_description` (string, required), `budget_tokens` (number, optional, default: 3500).
 
-### Outil 3 : `get_symbol_callers`
-* **Description** : Fournit la liste exhaustive des fonctions qui appellent un symbole donné dans toute la base de code.
-* **Paramètres** :
-  - `symbol_name` *(string, required)* : Nom de la fonction ou méthode.
-  - `file_path` *(string, optional)* : Fichier de définition pour désambiguïsation.
-* **Sortie** : Arbre d'appels ascendant avec chemins de fichiers et lignes.
+### `get_symbol_callers`
+* **Description**: Queries all incoming callers of a specific symbol across the codebase.
+* **Parameters**: `symbol_name` (string, required).
