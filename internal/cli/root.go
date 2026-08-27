@@ -9,6 +9,7 @@ import (
 	"github.com/nosleepman1/synapse-code/internal/ast"
 	"github.com/nosleepman1/synapse-code/internal/ast/golang"
 	"github.com/nosleepman1/synapse-code/internal/ast/python"
+	"github.com/nosleepman1/synapse-code/internal/ast/rust"
 	"github.com/nosleepman1/synapse-code/internal/ast/typescript"
 	appcontext "github.com/nosleepman1/synapse-code/internal/context"
 	"github.com/nosleepman1/synapse-code/internal/discovery"
@@ -116,6 +117,7 @@ func buildGraph(targetPath string) (*graph.Graph, error) {
 	reg.Register(golang.NewParser())
 	reg.Register(typescript.NewParser())
 	reg.Register(python.NewParser())
+	reg.Register(rust.NewParser())
 
 	matcher := discovery.NewIgnoreMatcher(nil, 1024)
 	scanner := discovery.NewScanner(matcher)
