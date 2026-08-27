@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,7 +12,7 @@ permissions:
 jobs:
   build-and-release:
     name: Build and Release
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -20,6 +21,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: false
 
       - name: Compile Multi-Platform Binaries
         run: |
@@ -38,7 +40,7 @@ jobs:
           tar -czf dist/synapse-darwin-arm64.tar.gz -C dist synapse-darwin-arm64
           # Windows AMD64
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/synapse.exe ./cmd/synapse
-          zip -j dist/synapse-windows-amd64.zip dist/synapse.exe
+          tar -czf dist/synapse-windows-amd64.tar.gz -C dist synapse.exe
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -47,6 +49,5 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.tar.gz
-            dist/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
