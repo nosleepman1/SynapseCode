@@ -9,6 +9,8 @@ const (
 	LangJavaScript Language = "javascript"
 	LangPython     Language = "python"
 	LangRust       Language = "rust"
+	LangJava       Language = "java"
+	LangPHP        Language = "php"
 	LangUnknown    Language = "unknown"
 )
 
@@ -21,6 +23,9 @@ const (
 	KindClass     SymbolKind = "class"
 	KindStruct    SymbolKind = "struct"
 	KindInterface SymbolKind = "interface"
+	KindTrait     SymbolKind = "trait"
+	KindRecord    SymbolKind = "record"
+	KindEnum      SymbolKind = "enum"
 	KindType      SymbolKind = "type"
 	KindVariable  SymbolKind = "variable"
 	KindConstant  SymbolKind = "constant"

@@ -16,6 +16,7 @@ type IgnoreMatcher struct {
 func NewIgnoreMatcher(customExcluded []string, maxFileSizeKB int64) *IgnoreMatcher {
 	defaults := map[string]bool{
 		".git":         true,
+		".synapse":     true,
 		"node_modules": true,
 		"vendor":       true,
 		"dist":         true,
@@ -24,9 +25,12 @@ func NewIgnoreMatcher(customExcluded []string, maxFileSizeKB int64) *IgnoreMatch
 		".next":        true,
 		".cache":       true,
 		"target":       true,
+		".gradle":      true,
+		".mvn":         true,
 		".idea":        true,
 		".vscode":      true,
 		"coverage":     true,
+		"storage":      true, // Laravel storage folder
 	}
 
 	for _, name := range customExcluded {
