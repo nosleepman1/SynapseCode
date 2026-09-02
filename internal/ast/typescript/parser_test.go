@@ -16,13 +16,23 @@ export interface UserDTO {
     email: string;
 }
 
-export class AuthService {
+export enum Role {
+    Admin = "ADMIN",
+    User = "USER"
+}
+
+export class AuthService implements IAuth {
     async login(dto: UserDTO): Promise<string> {
-        return "token";
+        return generateToken(dto.id);
     }
 }
 
+export const handleRequest = async (req: Request): Promise<void> => {
+    AuthService.login(req.body);
+};
+
 export function createServer(): void {
+    initApp();
 }
 `
 
@@ -39,6 +49,9 @@ export function createServer(): void {
 	hasInterface := false
 	hasClass := false
 	hasFunction := false
+	hasArrowFunc := false
+	hasMethod := false
+	hasEnum := false
 
 	for _, s := range parsed.Symbols {
 		if s.Name == "UserDTO" && s.Kind == model.KindInterface {
@@ -50,6 +63,15 @@ export function createServer(): void {
 		if s.Name == "createServer" && s.Kind == model.KindFunction {
 			hasFunction = true
 		}
+		if s.Name == "handleRequest" && s.Kind == model.KindFunction {
+			hasArrowFunc = true
+		}
+		if s.Name == "login" && s.Kind == model.KindMethod && s.QualifiedName == "AuthService.login" {
+			hasMethod = true
+		}
+		if s.Name == "Role" && s.Kind == model.KindType {
+			hasEnum = true
+		}
 	}
 
 	if !hasInterface {
@@ -60,5 +82,14 @@ export function createServer(): void {
 	}
 	if !hasFunction {
 		t.Errorf("expected createServer function")
+	}
+	if !hasArrowFunc {
+		t.Errorf("expected handleRequest arrow function")
+	}
+	if !hasMethod {
+		t.Errorf("expected AuthService.login method")
+	}
+	if !hasEnum {
+		t.Errorf("expected Role enum")
 	}
 }

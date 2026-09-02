@@ -14,8 +14,9 @@ import (
 
 var (
 	pyImportRegex = regexp.MustCompile(`^(?:from\s+([a-zA-Z0-9_.]+)\s+import|import\s+([a-zA-Z0-9_.]+))`)
-	pyDefRegex    = regexp.MustCompile(`^\s*(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\((.*?)\)`)
+	pyDefRegex    = regexp.MustCompile(`^\s*(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\((.*?)\)(?:\s*->\s*[^:]+)?:`)
 	pyClassRegex  = regexp.MustCompile(`^\s*class\s+([a-zA-Z0-9_]+)(?:\((.*?)\))?:`)
+	pyCallRegex   = regexp.MustCompile(`\b([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)\s*\(`)
 )
 
 // Parser implements ast.Parser for Python source files.
@@ -46,13 +47,20 @@ func (p *Parser) Parse(ctx context.Context, fileID model.FileID, filePath string
 	scanner := bufio.NewScanner(bytes.NewReader(content))
 	lineNum := 0
 	currentClass := ""
+	var pendingDecorators []string
 
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 
-		if strings.HasPrefix(trimmed, "#") {
+		if strings.HasPrefix(trimmed, "#") || trimmed == "" {
+			continue
+		}
+
+		// Decorators
+		if strings.HasPrefix(trimmed, "@") {
+			pendingDecorators = append(pendingDecorators, trimmed)
 			continue
 		}
 
@@ -67,9 +75,33 @@ func (p *Parser) Parse(ctx context.Context, fileID model.FileID, filePath string
 			}
 		}
 
+		// Extract function calls
+		var lineCalls []string
+		for _, cm := range pyCallRegex.FindAllStringSubmatch(line, -1) {
+			if len(cm) > 1 && cm[1] != "def" && cm[1] != "class" && cm[1] != "if" && cm[1] != "for" && cm[1] != "while" && cm[1] != "with" {
+				lineCalls = append(lineCalls, cm[1])
+			}
+		}
+
 		// Classes
 		if matches := pyClassRegex.FindStringSubmatch(line); len(matches) > 1 {
 			currentClass = matches[1]
+			var bases []string
+			if len(matches) > 2 && matches[2] != "" {
+				for _, b := range strings.Split(matches[2], ",") {
+					b = strings.TrimSpace(b)
+					if b != "" {
+						bases = append(bases, b)
+					}
+				}
+			}
+
+			sig := trimmed
+			if len(pendingDecorators) > 0 {
+				sig = strings.Join(pendingDecorators, "\n") + "\n" + sig
+				pendingDecorators = nil
+			}
+
 			result.Symbols = append(result.Symbols, model.Symbol{
 				ID:            model.SymbolID(fmt.Sprintf("%s::%s", filePath, currentClass)),
 				Name:          currentClass,
@@ -83,8 +115,10 @@ func (p *Parser) Parse(ctx context.Context, fileID model.FileID, filePath string
 					StartLine: lineNum,
 					EndLine:   lineNum,
 				},
-				Signature: trimmed,
-				Exported:  !strings.HasPrefix(currentClass, "_"),
+				Signature:  sig,
+				Exported:   !strings.HasPrefix(currentClass, "_"),
+				Implements: bases,
+				Calls:      lineCalls,
 			})
 			continue
 		}
@@ -109,6 +143,10 @@ func (p *Parser) Parse(ctx context.Context, fileID model.FileID, filePath string
 			if strings.HasSuffix(sig, ":") {
 				sig = strings.TrimSuffix(sig, ":")
 			}
+			if len(pendingDecorators) > 0 {
+				sig = strings.Join(pendingDecorators, "\n") + "\n" + sig
+				pendingDecorators = nil
+			}
 
 			result.Symbols = append(result.Symbols, model.Symbol{
 				ID:            model.SymbolID(fmt.Sprintf("%s::%s", filePath, qualifiedName)),
@@ -125,8 +163,13 @@ func (p *Parser) Parse(ctx context.Context, fileID model.FileID, filePath string
 				},
 				Signature: sig,
 				Exported:  !strings.HasPrefix(funcName, "_"),
+				Calls:     lineCalls,
 			})
+			continue
 		}
+
+		// Reset decorators if not consumed
+		pendingDecorators = nil
 	}
 
 	return result, nil
