@@ -98,6 +98,60 @@ func (g *Graph) NodeCount() int {
 	return len(g.nodes)
 }
 
+// RemoveNode removes a vertex and all its incident (incoming and outgoing) edges.
+func (g *Graph) RemoveNode(id model.NodeID) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	delete(g.nodes, id)
+
+	// Clean up outgoing edges and their incoming counterparts
+	if outEdges, ok := g.outgoing[id]; ok {
+		for _, e := range outEdges {
+			targetIncoming := g.incoming[e.Target]
+			var updatedIncoming []model.Edge
+			for _, in := range targetIncoming {
+				if in.Source != id {
+					updatedIncoming = append(updatedIncoming, in)
+				}
+			}
+			g.incoming[e.Target] = updatedIncoming
+		}
+		delete(g.outgoing, id)
+	}
+
+	// Clean up incoming edges and their outgoing counterparts
+	if inEdges, ok := g.incoming[id]; ok {
+		for _, e := range inEdges {
+			sourceOutgoing := g.outgoing[e.Source]
+			var updatedOutgoing []model.Edge
+			for _, out := range sourceOutgoing {
+				if out.Target != id {
+					updatedOutgoing = append(updatedOutgoing, out)
+				}
+			}
+			g.outgoing[e.Source] = updatedOutgoing
+		}
+		delete(g.incoming, id)
+	}
+}
+
+// RemoveFileNodes removes all symbol nodes and the file node associated with a specific file path.
+func (g *Graph) RemoveFileNodes(filePath string) {
+	g.mu.RLock()
+	var toRemove []model.NodeID
+	for id, n := range g.nodes {
+		if n.FilePath == filePath {
+			toRemove = append(toRemove, id)
+		}
+	}
+	g.mu.RUnlock()
+
+	for _, id := range toRemove {
+		g.RemoveNode(id)
+	}
+}
+
 // Summary returns high-level graph statistics.
 func (g *Graph) Summary() model.GraphSummary {
 	g.mu.RLock()
