@@ -6,7 +6,7 @@ SynapseCode reduces context token consumption by 75% to 90% when interacting wit
 
 ![SynapseCode Architecture](assets/synapse_architecture_banner.jpg)
 
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat-square&logo=go)](https://golang.org)
 [![Protocol](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 [![CI](https://img.shields.io/badge/CI-Passing-brightgreen?style=flat-square)](https://github.com/nosleepman1/SynapseCode/actions)
@@ -30,8 +30,10 @@ SynapseCode continuously analyzes your codebase into an in-memory directed depen
 * **AST Extraction**: Extracts symbol declarations, types, interfaces, and signatures without full function bodies.
 * **Multi-Edge Dependency Graph**: Maps relations including `CALLS`, `IMPORTS`, `DEFINES`, `IMPLEMENTS`, and `EXTENDS`.
 * **Personalized PageRank (PPR)**: Calculates centrality and relevance scores seeded by user task terms.
-* **Knapsack Token Budgeting**: Selects target implementations and direct 1-hop dependency skeletons under a strict token budget (e.g., 3,500 tokens).
-* **Model Context Protocol (MCP)**: Exposes standardized JSON-RPC 2.0 tools over `stdio` to Claude Desktop, Cursor, and IDE extensions.
+* **Adaptive Knapsack Token Budgeting**: Selects target implementations and direct 1-hop dependency skeletons under a strict token budget (e.g., 3,500 tokens).
+* **Zero-Dependency Persistent Cache**: Caches parsed file metadata on disk (`.synapse/cache.json`) for sub-30ms incremental startup.
+* **Live File Watcher (`fsnotify`)**: Continuously syncs the code graph in the background without restarting the server.
+* **Model Context Protocol (MCP)**: Exposes 6 standardized JSON-RPC 2.0 tools over `stdio` to Claude Desktop, Cursor, and IDE extensions.
 
 ---
 
@@ -48,12 +50,14 @@ Evaluation performed on a 120,000-token repository refactoring task:
 
 ---
 
-## 4. Supported Languages
+## 4. Supported Languages & Frameworks
 
 * **Go** (`.go`)
-* **TypeScript & JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`)
-* **Python** (`.py`)
-* **Rust** (`.rs`)
+* **TypeScript & JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`) — Full ES6+, arrow functions, class methods, enums, interfaces.
+* **Python** (`.py`) — Async defs, decorators (`@dataclass`, `@property`, `@classmethod`), multiple inheritance.
+* **Rust** (`.rs`) — Structs, traits, and `impl` blocks.
+* **Java** (`.java`) — Spring Boot annotations (`@RestController`, `@Service`, `@Autowired`, `@GetMapping`), Java records, enums, interfaces.
+* **PHP** (`.php`, `.phtml`) — Laravel controllers, Eloquent models, PHP 8+ attributes (`#[Route]`), traits, enums.
 * *Pluggable architecture allowing seamless community contributions for additional languages.*
 
 ---
@@ -81,30 +85,39 @@ Add the following configuration to your `claude_desktop_config.json`:
   "mcpServers": {
     "synapse-code": {
       "command": "synapse",
-      "args": ["mcp", "--path", "/path/to/your/repository"]
+      "args": ["mcp", "--path", "/path/to/your/repository", "--watch"]
     }
   }
 }
 ```
 
-Restart Claude Desktop. The following tools will be automatically available:
-* `get_repo_map`: Generates an architectural overview under a specified token budget.
-* `get_context_for_task`: Retrieves full target implementations and direct 1-hop skeletons for a given task.
-* `get_symbol_callers`: Inspects all callers of a given symbol across the codebase to prevent regressions.
+Restart Claude Desktop. The following **6 tools** are automatically available:
+* `get_repo_map`: Generates an architectural overview with language and symbol category distributions.
+* `get_context_for_task`: Retrieves full target implementations and direct 1-hop skeletons under a strict token budget.
+* `get_symbol_callers`: Inspects all callers and dependents of a given symbol across the codebase to prevent regressions.
+* `get_symbol_definition`: Retrieves the full definition, signature, location, documentation, and body of any symbol.
+* `get_impact_analysis`: Calculates the blast radius of modifying a symbol (direct callers, transitive dependents, affected files, impacted test suites, risk severity `LOW` to `CRITICAL`).
+* `get_file_outline`: Returns a structured outline of all symbols defined in a file with line numbers and signatures.
 
 ---
 
 ### Command Line Interface (CLI)
 
 ```bash
+# Scan and persist codebase graph index to .synapse/cache.json
+synapse index --path /path/to/repo
+
+# Force re-indexing all files, bypassing existing cache
+synapse index --force
+
 # Generate an architectural map under 2000 tokens
 synapse map --path /path/to/repo
 
 # Extract targeted context for a specific task
 synapse context "fix token verification in jwt service" --budget 3500
 
-# Start MCP server on standard I/O
-synapse mcp --path /path/to/repo
+# Start MCP server on standard I/O with live filesystem watching
+synapse mcp --path /path/to/repo --watch
 ```
 
 ---
