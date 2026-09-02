@@ -20,3 +20,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# SynapseCode local cache
+.synapse/
