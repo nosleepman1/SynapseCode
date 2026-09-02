@@ -16,11 +16,14 @@ import (
 	"github.com/nosleepman1/synapse-code/internal/graph"
 	"github.com/nosleepman1/synapse-code/internal/indexer"
 	"github.com/nosleepman1/synapse-code/internal/mcp"
+	"github.com/nosleepman1/synapse-code/internal/storage"
 )
 
 var (
-	repoPath string
-	budget   int
+	repoPath   string
+	budget     int
+	watchMode  bool
+	forceIndex bool
 )
 
 var RootCmd = &cobra.Command{
@@ -34,8 +37,49 @@ var mcpCmd = &cobra.Command{
 	Short: "Start the Model Context Protocol (MCP) server for Claude Desktop / AI Agents",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := getTargetRepoPath()
-		server := mcp.NewServer(path)
+		server := mcp.NewServerWithOptions(path, watchMode)
+		defer server.Close()
 		return server.StartStdio()
+	},
+}
+
+var indexCmd = &cobra.Command{
+	Use:   "index",
+	Short: "Scan, parse, and persist codebase graph index to .synapse/cache.json",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		path := getTargetRepoPath()
+		g := graph.NewGraph()
+		reg := ast.NewRegistry()
+		reg.Register(golang.NewParser())
+		reg.Register(typescript.NewParser())
+		reg.Register(python.NewParser())
+		reg.Register(rust.NewParser())
+
+		matcher := discovery.NewIgnoreMatcher(nil, 1024)
+		scanner := discovery.NewScanner(matcher)
+		idx := indexer.NewIndexer(scanner, reg)
+
+		var cache *storage.FileCache
+		if forceIndex {
+			cache = storage.NewFileCache()
+		} else {
+			cache, _ = storage.LoadCache(path)
+		}
+
+		stats, err := idx.IndexIncremental(context.Background(), path, g, cache)
+		if err != nil {
+			return fmt.Errorf("indexing failed: %w", err)
+		}
+
+		summary := g.Summary()
+		fmt.Printf("✓ Codebase indexed successfully in %v\n", stats.Duration)
+		fmt.Printf("  - Discovered files: %d\n", stats.TotalDiscovered)
+		fmt.Printf("  - Cached hits:     %d\n", stats.Cached)
+		fmt.Printf("  - Freshly parsed:  %d (Added: %d, Modified: %d)\n", stats.Added+stats.Modified, stats.Added, stats.Modified)
+		fmt.Printf("  - Pruned files:    %d\n", stats.Deleted)
+		fmt.Printf("  - In-Memory Graph: %d symbols, %d dependency edges\n", summary.TotalSymbols, summary.TotalEdges)
+		fmt.Printf("  - Cache location:  %s\n", storage.CacheFilePath(path))
+		return nil
 	},
 }
 
@@ -94,8 +138,11 @@ var contextCmd = &cobra.Command{
 func init() {
 	RootCmd.PersistentFlags().StringVarP(&repoPath, "path", "p", "", "Target repository path (default: current directory)")
 	contextCmd.Flags().IntVarP(&budget, "budget", "b", 3500, "Maximum token budget for context")
+	mcpCmd.Flags().BoolVarP(&watchMode, "watch", "w", false, "Enable live event-driven filesystem watcher")
+	indexCmd.Flags().BoolVarP(&forceIndex, "force", "f", false, "Force re-indexing all files, bypassing existing cache")
 
 	RootCmd.AddCommand(mcpCmd)
+	RootCmd.AddCommand(indexCmd)
 	RootCmd.AddCommand(mapCmd)
 	RootCmd.AddCommand(contextCmd)
 }
@@ -123,7 +170,8 @@ func buildGraph(targetPath string) (*graph.Graph, error) {
 	scanner := discovery.NewScanner(matcher)
 	idx := indexer.NewIndexer(scanner, reg)
 
-	err := idx.IndexRepository(context.Background(), targetPath, g)
+	cache, _ := storage.LoadCache(targetPath)
+	_, err := idx.IndexIncremental(context.Background(), targetPath, g, cache)
 	if err != nil {
 		return nil, fmt.Errorf("indexing failed: %w", err)
 	}

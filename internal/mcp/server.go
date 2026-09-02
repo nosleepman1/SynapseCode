@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nosleepman1/synapse-code/internal/ast"
 	"github.com/nosleepman1/synapse-code/internal/ast/golang"
@@ -19,6 +20,7 @@ import (
 	"github.com/nosleepman1/synapse-code/internal/discovery"
 	"github.com/nosleepman1/synapse-code/internal/graph"
 	"github.com/nosleepman1/synapse-code/internal/indexer"
+	"github.com/nosleepman1/synapse-code/internal/storage"
 	"github.com/nosleepman1/synapse-code/pkg/model"
 )
 
@@ -37,10 +39,18 @@ type Server struct {
 	repoPath       string
 	graph          *graph.Graph
 	contextBuilder *appcontext.Builder
+	cache          *storage.FileCache
+	indexer        *indexer.Indexer
+	watcher        *discovery.FileWatcher
 }
 
-// NewServer initializes the MCP server and triggers codebase indexing.
+// NewServer initializes the MCP server and triggers codebase indexing using the persistent cache.
 func NewServer(repoPath string) *Server {
+	return NewServerWithOptions(repoPath, false)
+}
+
+// NewServerWithOptions creates the MCP server with optional live background file watching.
+func NewServerWithOptions(repoPath string, enableWatcher bool) *Server {
 	g := graph.NewGraph()
 	reg := ast.NewRegistry()
 	reg.Register(golang.NewParser())
@@ -52,13 +62,40 @@ func NewServer(repoPath string) *Server {
 	scanner := discovery.NewScanner(matcher)
 	idx := indexer.NewIndexer(scanner, reg)
 
-	_ = idx.IndexRepository(context.Background(), repoPath, g)
+	cache, _ := storage.LoadCache(repoPath)
+	_, _ = idx.IndexIncremental(context.Background(), repoPath, g, cache)
 
-	return &Server{
+	s := &Server{
 		repoPath:       repoPath,
 		graph:          g,
 		contextBuilder: appcontext.NewBuilder(),
+		cache:          cache,
+		indexer:        idx,
 	}
+
+	if enableWatcher {
+		s.startLiveWatcher(matcher)
+	}
+
+	return s
+}
+
+func (s *Server) startLiveWatcher(matcher *discovery.IgnoreMatcher) {
+	watcher, err := discovery.NewFileWatcher(s.repoPath, matcher, 300*time.Millisecond, func(changedPaths []string) {
+		_, _ = s.indexer.IndexIncremental(context.Background(), s.repoPath, s.graph, s.cache)
+	})
+	if err == nil {
+		s.watcher = watcher
+		go watcher.Start(context.Background())
+	}
+}
+
+// Close releases any background resources such as the file watcher.
+func (s *Server) Close() error {
+	if s.watcher != nil {
+		return s.watcher.Close()
+	}
+	return nil
 }
 
 // StartStdio starts reading JSON-RPC messages from stdin and replying on stdout.
