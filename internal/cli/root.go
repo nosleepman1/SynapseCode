@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/nosleepman1/synapse-code/internal/ast"
 	"github.com/nosleepman1/synapse-code/internal/ast/golang"
+	"github.com/nosleepman1/synapse-code/internal/ast/java"
+	"github.com/nosleepman1/synapse-code/internal/ast/php"
 	"github.com/nosleepman1/synapse-code/internal/ast/python"
 	"github.com/nosleepman1/synapse-code/internal/ast/rust"
 	"github.com/nosleepman1/synapse-code/internal/ast/typescript"
@@ -54,6 +56,8 @@ var indexCmd = &cobra.Command{
 		reg.Register(typescript.NewParser())
 		reg.Register(python.NewParser())
 		reg.Register(rust.NewParser())
+		reg.Register(java.NewParser())
+		reg.Register(php.NewParser())
 
 		matcher := discovery.NewIgnoreMatcher(nil, 1024)
 		scanner := discovery.NewScanner(matcher)
@@ -165,6 +169,8 @@ func buildGraph(targetPath string) (*graph.Graph, error) {
 	reg.Register(typescript.NewParser())
 	reg.Register(python.NewParser())
 	reg.Register(rust.NewParser())
+	reg.Register(java.NewParser())
+	reg.Register(php.NewParser())
 
 	matcher := discovery.NewIgnoreMatcher(nil, 1024)
 	scanner := discovery.NewScanner(matcher)
