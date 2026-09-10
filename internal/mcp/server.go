@@ -149,10 +149,17 @@ func (s *Server) handleRequest(req *JSONRPCMessage) *JSONRPCMessage {
 				"protocolVersion": "2024-11-05",
 				"capabilities": map[string]interface{}{
 					"tools": map[string]interface{}{},
+					"resources": map[string]interface{}{
+						"subscribe":   false,
+						"listChanged": false,
+					},
+					"prompts": map[string]interface{}{
+						"listChanged": false,
+					},
 				},
 				"serverInfo": map[string]interface{}{
 					"name":    "synapse-code",
-					"version": "1.0.0",
+					"version": "1.1.0",
 				},
 			},
 		}
@@ -171,6 +178,21 @@ func (s *Server) handleRequest(req *JSONRPCMessage) *JSONRPCMessage {
 
 	case "tools/call":
 		return s.handleToolCall(req)
+
+	case "resources/list":
+		return s.handleResourcesList(req)
+
+	case "resources/templates/list":
+		return s.handleResourceTemplatesList(req)
+
+	case "resources/read":
+		return s.handleResourcesRead(req)
+
+	case "prompts/list":
+		return s.handlePromptsList(req)
+
+	case "prompts/get":
+		return s.handlePromptsGet(req)
 
 	default:
 		return &JSONRPCMessage{
@@ -711,4 +733,390 @@ func isTestFile(path string) bool {
 		strings.Contains(lower, "/tests/") ||
 		strings.Contains(lower, "\\test\\") ||
 		strings.Contains(lower, "\\tests\\")
+}
+
+func (s *Server) handleResourcesList(req *JSONRPCMessage) *JSONRPCMessage {
+	return &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]interface{}{
+			"resources": []map[string]interface{}{
+				{
+					"uri":         "synapse://graph/summary",
+					"name":        "Codebase Graph Overview",
+					"description": "Total files, symbols, dependency edges, and repository metrics",
+					"mimeType":    "text/markdown",
+				},
+				{
+					"uri":         "synapse://graph/languages",
+					"name":        "Language Distribution",
+					"description": "Breakdown of programming languages across indexed files",
+					"mimeType":    "text/markdown",
+				},
+				{
+					"uri":         "synapse://graph/symbols",
+					"name":        "All Exported Symbols",
+					"description": "Master index of all exported functions, classes, and interfaces",
+					"mimeType":    "text/markdown",
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) handleResourceTemplatesList(req *JSONRPCMessage) *JSONRPCMessage {
+	return &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]interface{}{
+			"resourceTemplates": []map[string]interface{}{
+				{
+					"uriTemplate": "synapse://graph/file/{path}",
+					"name":        "File Symbol Outline",
+					"description": "Inspect all symbols and call signatures declared in a specific file",
+					"mimeType":    "text/markdown",
+				},
+				{
+					"uriTemplate": "synapse://graph/symbol/{name}",
+					"name":        "Symbol Definition & Dependency Context",
+					"description": "Inspect the full definition, signature, callers, and callees of a symbol",
+					"mimeType":    "text/markdown",
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) handleResourcesRead(req *JSONRPCMessage) *JSONRPCMessage {
+	var params struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.URI == "" {
+		return &JSONRPCMessage{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: map[string]interface{}{
+				"code":    -32602,
+				"message": "Invalid params: 'uri' is required",
+			},
+		}
+	}
+
+	uri := params.URI
+	var text string
+
+	switch {
+	case uri == "synapse://graph/summary":
+		summary := s.graph.Summary()
+		var sb strings.Builder
+		sb.WriteString("# SynapseCode Repository Graph Summary\n\n")
+		sb.WriteString(fmt.Sprintf("- **Root Path**: `%s`\n", s.repoPath))
+		sb.WriteString(fmt.Sprintf("- **Total Files**: %d\n", summary.TotalFiles))
+		sb.WriteString(fmt.Sprintf("- **Total Symbols**: %d\n", summary.TotalSymbols))
+		sb.WriteString(fmt.Sprintf("- **Total Dependency Edges**: %d\n", summary.TotalEdges))
+		text = sb.String()
+
+	case uri == "synapse://graph/languages":
+		langCounts := make(map[model.Language]int)
+		for _, n := range s.graph.AllNodes() {
+			if n.Symbol != nil && n.Symbol.Language != "" {
+				langCounts[n.Symbol.Language]++
+			}
+		}
+		var sb strings.Builder
+		sb.WriteString("# Indexed Programming Languages\n\n")
+		sb.WriteString("| Language | Symbols Count |\n")
+		sb.WriteString("| :--- | :--- |\n")
+		for lang, count := range langCounts {
+			sb.WriteString(fmt.Sprintf("| `%s` | %d |\n", lang, count))
+		}
+		if len(langCounts) == 0 {
+			sb.WriteString("| *None* | 0 |\n")
+		}
+		text = sb.String()
+
+	case uri == "synapse://graph/symbols":
+		nodes := s.graph.AllNodes()
+		var sb strings.Builder
+		sb.WriteString("# Master Symbol Index\n\n")
+		count := 0
+		for _, n := range nodes {
+			if n.Symbol != nil && n.Symbol.Exported {
+				sb.WriteString(fmt.Sprintf("- `%s` (%s) in `%s:%d`\n", n.Symbol.QualifiedName, n.Symbol.Kind, n.FilePath, n.Symbol.Location.StartLine))
+				count++
+			}
+		}
+		if count == 0 {
+			sb.WriteString("*No exported symbols found.*\n")
+		}
+		text = sb.String()
+
+	case strings.HasPrefix(uri, "synapse://graph/file/"):
+		targetFile := strings.TrimPrefix(uri, "synapse://graph/file/")
+		text = s.getFileOutline(targetFile)
+
+	case strings.HasPrefix(uri, "synapse://graph/symbol/"):
+		targetSymbol := strings.TrimPrefix(uri, "synapse://graph/symbol/")
+		text = s.formatSymbolResource(targetSymbol)
+
+	default:
+		return &JSONRPCMessage{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: map[string]interface{}{
+				"code":    -32602,
+				"message": fmt.Sprintf("Unknown resource URI: %s", uri),
+			},
+		}
+	}
+
+	return &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]interface{}{
+			"contents": []map[string]interface{}{
+				{
+					"uri":      uri,
+					"mimeType": "text/markdown",
+					"text":     text,
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) formatSymbolResource(symbolName string) string {
+	nodes := s.graph.AllNodes()
+	var target *model.Node
+	for _, n := range nodes {
+		if n.Symbol != nil && (n.Symbol.Name == symbolName || n.Symbol.QualifiedName == symbolName) {
+			target = n
+			break
+		}
+	}
+
+	if target == nil || target.Symbol == nil {
+		return fmt.Sprintf("# Symbol Not Found: `%s`\n\nNo symbol matching `%s` was discovered in the graph.", symbolName, symbolName)
+	}
+
+	sym := target.Symbol
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Symbol: `%s`\n\n", sym.QualifiedName))
+	sb.WriteString(fmt.Sprintf("- **Kind**: `%s`\n", sym.Kind))
+	sb.WriteString(fmt.Sprintf("- **File**: `%s:%d-%d`\n", target.FilePath, sym.Location.StartLine, sym.Location.EndLine))
+	if sym.Documentation != "" {
+		sb.WriteString(fmt.Sprintf("- **Documentation**: %s\n", sym.Documentation))
+	}
+	sb.WriteString(fmt.Sprintf("\n## Signature\n```\n%s\n```\n\n", sym.Signature))
+
+	// Direct Callers
+	incomingEdges := s.graph.GetIncoming(target.ID)
+	callerMap := make(map[model.NodeID]bool)
+	var callers []*model.Node
+	for _, edge := range incomingEdges {
+		if (edge.Type == model.EdgeCalls || edge.Type == model.EdgeReferences) && !callerMap[edge.Source] {
+			callerMap[edge.Source] = true
+			if srcNode, ok := s.graph.GetNode(edge.Source); ok && srcNode.Symbol != nil {
+				callers = append(callers, srcNode)
+			}
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("## Direct Callers (%d)\n", len(callers)))
+	for _, c := range callers {
+		if c.Symbol != nil {
+			sb.WriteString(fmt.Sprintf("- `%s` (%s) in `%s`\n", c.Symbol.QualifiedName, c.Symbol.Kind, c.FilePath))
+		}
+	}
+	if len(callers) == 0 {
+		sb.WriteString("*No incoming callers found in graph.*\n")
+	}
+
+	return sb.String()
+}
+
+func (s *Server) handlePromptsList(req *JSONRPCMessage) *JSONRPCMessage {
+	return &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]interface{}{
+			"prompts": []map[string]interface{}{
+				{
+					"name":        "refactor_safe",
+					"description": "Guides a safe refactoring of a symbol with blast radius, callers, and dependency analysis.",
+					"arguments": []map[string]interface{}{
+						{
+							"name":        "symbol_name",
+							"description": "The exact name of the function, class, or interface to refactor",
+							"required":    true,
+						},
+						{
+							"name":        "objective",
+							"description": "The specific goal of the refactoring (e.g., extract interface, simplify logic, improve performance)",
+							"required":    false,
+						},
+					},
+				},
+				{
+					"name":        "generate_unit_tests",
+					"description": "Generates a complete, mock-ready unit test suite for a given symbol.",
+					"arguments": []map[string]interface{}{
+						{
+							"name":        "symbol_name",
+							"description": "The name of the function or class to write unit tests for",
+							"required":    true,
+						},
+					},
+				},
+				{
+					"name":        "audit_architecture",
+					"description": "Performs an architectural coupling and dependency health check on the codebase or a specific directory.",
+					"arguments": []map[string]interface{}{
+						{
+							"name":        "focus_path",
+							"description": "Optional subdirectory or module to focus the architectural audit on",
+							"required":    false,
+						},
+					},
+				},
+				{
+					"name":        "explain_symbol",
+					"description": "Explains the architectural role, dependencies, and call-hierarchy of a symbol.",
+					"arguments": []map[string]interface{}{
+						{
+							"name":        "symbol_name",
+							"description": "The symbol to explain in architectural context",
+							"required":    true,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) handlePromptsGet(req *JSONRPCMessage) *JSONRPCMessage {
+	var params struct {
+		Name      string            `json:"name"`
+		Arguments map[string]string `json:"arguments"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+		return &JSONRPCMessage{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: map[string]interface{}{
+				"code":    -32602,
+				"message": "Invalid params: 'name' is required",
+			},
+		}
+	}
+
+	var promptText string
+	var desc string
+
+	switch params.Name {
+	case "refactor_safe":
+		symName := params.Arguments["symbol_name"]
+		objective := params.Arguments["objective"]
+		if objective == "" {
+			objective = "Improve code modularity, readability, and performance with zero breaking changes"
+		}
+		desc = fmt.Sprintf("Safe refactoring workflow for `%s`", symName)
+
+		symResource := s.formatSymbolResource(symName)
+		promptText = fmt.Sprintf(`You are an expert principal software engineer. You have been tasked with safely refactoring the symbol '%s' with ZERO regressions.
+
+## Refactoring Objective
+%s
+
+## Architectural Context & Blast Radius
+%s
+
+## Instructions
+1. Analyze the signature, callers, and outgoing dependencies above.
+2. Formulate a step-by-step refactoring plan that preserves all backward compatibility contracts for direct callers.
+3. Provide the complete refactored implementation.
+4. List which existing unit tests must be verified to confirm no regressions occurred.
+`, symName, objective, symResource)
+
+	case "generate_unit_tests":
+		symName := params.Arguments["symbol_name"]
+		desc = fmt.Sprintf("Generate unit tests for `%s`", symName)
+		symResource := s.formatSymbolResource(symName)
+
+		promptText = fmt.Sprintf(`You are an expert test automation engineer. Write a complete, edge-case-resilient unit test suite for the following symbol:
+
+## Target Symbol & Context
+%s
+
+## Requirements
+1. Cover standard execution paths, edge cases (empty inputs, nil pointers, boundaries), and error handling branches.
+2. Identify all external dependencies and inject clean mocks/stubs.
+3. Format tests using idiomatic testing frameworks for the language (e.g. testing package in Go, Jest/Vitest in TS, PyTest in Python, JUnit in Java, PHPUnit in PHP, xUnit in C#).
+`, symResource)
+
+	case "audit_architecture":
+		focus := params.Arguments["focus_path"]
+		summary := s.graph.Summary()
+		desc = "Architectural audit and coupling analysis"
+
+		promptText = fmt.Sprintf(`You are a software architect conducting an architectural review of this codebase.
+
+## Repository Overview
+- Repository Root: %s
+- Focus Subsystem: %s
+- Total Files: %d
+- Total Symbols: %d
+- Dependency Edges: %d
+
+## Audit Objectives
+1. Identify high-risk bottlenecks, highly coupled components, and circular dependencies.
+2. Recommend decoupling strategies (e.g., interface segregation, dependency inversion).
+3. Evaluate modularity and provide actionable architectural recommendations.
+`, s.repoPath, focus, summary.TotalFiles, summary.TotalSymbols, summary.TotalEdges)
+
+	case "explain_symbol":
+		symName := params.Arguments["symbol_name"]
+		desc = fmt.Sprintf("Architectural explanation of `%s`", symName)
+		symResource := s.formatSymbolResource(symName)
+
+		promptText = fmt.Sprintf(`Explain the architectural role, implementation purpose, and dependencies of the symbol '%s'.
+
+## Symbol Context
+%s
+
+## Response Format
+- **High-Level Purpose**: What problem does this symbol solve?
+- **Upstream Callers**: Who depends on it and why?
+- **Downstream Dependencies**: What external contracts does it rely upon?
+- **Key Implementation Invariants**: Important design considerations or gotchas.
+`, symName, symResource)
+
+	default:
+		return &JSONRPCMessage{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: map[string]interface{}{
+				"code":    -32602,
+				"message": fmt.Sprintf("Unknown prompt: %s", params.Name),
+			},
+		}
+	}
+
+	return &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]interface{}{
+			"description": desc,
+			"messages": []map[string]interface{}{
+				{
+					"role": "user",
+					"content": map[string]interface{}{
+						"type": "text",
+						"text": promptText,
+					},
+				},
+			},
+		},
+	}
 }
