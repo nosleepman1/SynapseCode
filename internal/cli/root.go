@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/nosleepman1/synapse-code/internal/ast"
@@ -18,7 +19,9 @@ import (
 	"github.com/nosleepman1/synapse-code/internal/graph"
 	"github.com/nosleepman1/synapse-code/internal/indexer"
 	"github.com/nosleepman1/synapse-code/internal/mcp"
+	"github.com/nosleepman1/synapse-code/internal/search"
 	"github.com/nosleepman1/synapse-code/internal/storage"
+	"github.com/nosleepman1/synapse-code/pkg/model"
 )
 
 var (
@@ -139,6 +142,66 @@ var contextCmd = &cobra.Command{
 	},
 }
 
+var queryCmd = &cobra.Command{
+	Use:   "query [search terms]",
+	Short: "Search codebase symbols using Okapi BM25 and Reciprocal Rank Fusion",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		path := getTargetRepoPath()
+		g, err := buildGraph(path)
+		if err != nil {
+			return err
+		}
+
+		query := strings.Join(args, " ")
+		allNodes := g.AllNodes()
+		matches := search.ScoreNodes(allNodes, query)
+
+		fmt.Printf("# BM25 & RRF Search Results for \"%s\" (%s)\n\n", query, path)
+		if len(matches) == 0 {
+			fmt.Println("No matching symbols or files found.")
+			return nil
+		}
+
+		// Calculate PageRank and RRF
+		seeds := make(map[model.NodeID]float64)
+		for _, m := range matches {
+			seeds[m.NodeID] = m.Score
+		}
+		rankedNodes := g.PersonalizedPageRank(seeds, graph.DefaultPageRankConfig())
+		prScores := make(map[model.NodeID]float64, len(rankedNodes))
+		for _, rn := range rankedNodes {
+			prScores[rn.Node.ID] = rn.Score
+		}
+		fused := search.ComputeRRF(matches, prScores, 60)
+
+		nodeMap := make(map[model.NodeID]*model.Node, len(allNodes))
+		for _, n := range allNodes {
+			nodeMap[n.ID] = n
+		}
+
+		count := 0
+		for _, item := range fused {
+			if count >= 15 {
+				break
+			}
+			node := nodeMap[item.NodeID]
+			if node == nil || node.Symbol == nil {
+				continue
+			}
+			sym := node.Symbol
+			fmt.Printf("%2d. [%.4f RRF | BM25: #%d (%.2f) | PR: #%d (%.4f)] `%s` (%s)\n",
+				count+1, item.RRFScore, item.LexicalRank, item.LexicalScore, item.PageRankRank, item.PageRankScore, sym.QualifiedName, sym.Kind)
+			fmt.Printf("    File: %s:%d\n", node.FilePath, sym.Location.StartLine)
+			if sym.Documentation != "" {
+				fmt.Printf("    Doc:  %s\n", sym.Documentation)
+			}
+			count++
+		}
+		return nil
+	},
+}
+
 func init() {
 	RootCmd.PersistentFlags().StringVarP(&repoPath, "path", "p", "", "Target repository path (default: current directory)")
 	contextCmd.Flags().IntVarP(&budget, "budget", "b", 3500, "Maximum token budget for context")
@@ -149,6 +212,7 @@ func init() {
 	RootCmd.AddCommand(indexCmd)
 	RootCmd.AddCommand(mapCmd)
 	RootCmd.AddCommand(contextCmd)
+	RootCmd.AddCommand(queryCmd)
 }
 
 func getTargetRepoPath() string {

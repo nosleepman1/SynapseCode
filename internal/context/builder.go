@@ -37,7 +37,7 @@ func (b *Builder) BuildContextPack(ctx context.Context, g *graph.Graph, taskQuer
 		}, nil
 	}
 
-	// 1. Lexical search to find seed nodes
+	// 1. Lexical search using Okapi BM25 to find seed nodes
 	matches := search.ScoreNodes(allNodes, taskQuery)
 	seeds := make(map[model.NodeID]float64)
 	for _, m := range matches {
@@ -47,7 +47,18 @@ func (b *Builder) BuildContextPack(ctx context.Context, g *graph.Graph, taskQuer
 	// 2. Personalized PageRank
 	rankedNodes := g.PersonalizedPageRank(seeds, graph.DefaultPageRankConfig())
 
-	// 3. Selection under token budget (Adaptive Knapsack)
+	// 3. Reciprocal Rank Fusion (RRF) blending BM25 & PageRank
+	prScores := make(map[model.NodeID]float64, len(rankedNodes))
+	nodeMap := make(map[model.NodeID]*model.Node, len(allNodes))
+	for _, n := range allNodes {
+		nodeMap[n.ID] = n
+	}
+	for _, rn := range rankedNodes {
+		prScores[rn.Node.ID] = rn.Score
+	}
+	fusedResults := search.ComputeRRF(matches, prScores, 60)
+
+	// 4. Selection under token budget (Adaptive Knapsack)
 	usedBudget := 0
 	var selectedItems []model.ContextItem
 	includedSymbols := make(map[model.NodeID]bool)
@@ -58,10 +69,10 @@ func (b *Builder) BuildContextPack(ctx context.Context, g *graph.Graph, taskQuer
 		usableBudget = budgetTokens
 	}
 
-	// Pass 3.1: Primary items (High-relevance nodes with adaptive full-body expansion)
-	for _, rn := range rankedNodes {
-		node := rn.Node
-		if node.Symbol == nil {
+	// Pass 4.1: Primary items (Ordered by Fused RRF Score with adaptive body expansion)
+	for _, fr := range fusedResults {
+		node, exists := nodeMap[fr.NodeID]
+		if !exists || node.Symbol == nil {
 			continue // Skip file nodes
 		}
 
@@ -83,8 +94,8 @@ func (b *Builder) BuildContextPack(ctx context.Context, g *graph.Graph, taskQuer
 			fullCost = b.estimator.Count(fullContent)
 		}
 
-		// Try to pack full body if relevance is high and budget allows
-		if hasBody && rn.Score > 0.01 && usedBudget+fullCost <= usableBudget {
+		// Try to pack full body if RRF score is strong and budget allows
+		if hasBody && fr.RRFScore > 0.015 && usedBudget+fullCost <= usableBudget {
 			usedBudget += fullCost
 			includedSymbols[node.ID] = true
 			selectedItems = append(selectedItems, model.ContextItem{
@@ -94,8 +105,8 @@ func (b *Builder) BuildContextPack(ctx context.Context, g *graph.Graph, taskQuer
 				Mode:       model.ContextFullCode,
 				Content:    fullContent,
 				TokenCount: fullCost,
-				Relevance:  rn.Score,
-				Reason:     fmt.Sprintf("Primary target (PageRank: %.4f)", rn.Score),
+				Relevance:  fr.RRFScore,
+				Reason:     fmt.Sprintf("Primary target (RRF: %.4f, BM25 rank: #%d, PageRank: #%d)", fr.RRFScore, fr.LexicalRank, fr.PageRankRank),
 			})
 		} else if usedBudget+skelCost <= usableBudget {
 			// Otherwise fallback gracefully to signature skeleton
@@ -108,8 +119,8 @@ func (b *Builder) BuildContextPack(ctx context.Context, g *graph.Graph, taskQuer
 				Mode:       model.ContextSkeleton,
 				Content:    skelContent,
 				TokenCount: skelCost,
-				Relevance:  rn.Score,
-				Reason:     fmt.Sprintf("Skeleton reference (PageRank: %.4f)", rn.Score),
+				Relevance:  fr.RRFScore,
+				Reason:     fmt.Sprintf("Skeleton reference (RRF: %.4f, BM25 rank: #%d, PageRank: #%d)", fr.RRFScore, fr.LexicalRank, fr.PageRankRank),
 			})
 		}
 	}
