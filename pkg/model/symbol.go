@@ -11,6 +11,9 @@ const (
 	LangRust       Language = "rust"
 	LangJava       Language = "java"
 	LangPHP        Language = "php"
+	LangCSharp     Language = "csharp"
+	LangC          Language = "c"
+	LangCpp        Language = "cpp"
 	LangUnknown    Language = "unknown"
 )
 

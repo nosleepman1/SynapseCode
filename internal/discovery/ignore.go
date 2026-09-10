@@ -29,8 +29,12 @@ func NewIgnoreMatcher(customExcluded []string, maxFileSizeKB int64) *IgnoreMatch
 		".mvn":         true,
 		".idea":        true,
 		".vscode":      true,
+		".vs":          true, // Visual Studio / C#
+		"obj":          true, // .NET build output
 		"coverage":     true,
 		"storage":      true, // Laravel storage folder
+		"cmake-build-debug":   true, // CMake build folder
+		"cmake-build-release": true, // CMake build folder
 	}
 
 	for _, name := range customExcluded {

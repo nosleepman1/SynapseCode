@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/nosleepman1/synapse-code/internal/ast"
+	"github.com/nosleepman1/synapse-code/internal/ast/cpp"
+	"github.com/nosleepman1/synapse-code/internal/ast/csharp"
 	"github.com/nosleepman1/synapse-code/internal/ast/golang"
 	"github.com/nosleepman1/synapse-code/internal/ast/java"
 	"github.com/nosleepman1/synapse-code/internal/ast/php"
@@ -61,6 +63,8 @@ func NewServerWithOptions(repoPath string, enableWatcher bool) *Server {
 	reg.Register(rust.NewParser())
 	reg.Register(java.NewParser())
 	reg.Register(php.NewParser())
+	reg.Register(csharp.NewParser())
+	reg.Register(cpp.NewParser())
 
 	matcher := discovery.NewIgnoreMatcher(nil, 1024)
 	scanner := discovery.NewScanner(matcher)
