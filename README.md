@@ -58,6 +58,8 @@ Evaluation performed on a 120,000-token repository refactoring task:
 * **Rust** (`.rs`) — Structs, traits, and `impl` blocks.
 * **Java** (`.java`) — Spring Boot annotations (`@RestController`, `@Service`, `@Autowired`, `@GetMapping`), Java records, enums, interfaces.
 * **PHP** (`.php`, `.phtml`) — Laravel controllers, Eloquent models, PHP 8+ attributes (`#[Route]`), traits, enums.
+* **C#** (`.cs`) — ASP.NET Core controllers (`[ApiController]`, `[Route]`, `[HttpGet]`), records, enums, interfaces, async tasks.
+* **C & C++** (`.c`, `.cpp`, `.cc`, `.cxx`, `.h`, `.hpp`) — Headers, namespaces, classes with multiple inheritance, templates, structs, enum classes.
 * *Pluggable architecture allowing seamless community contributions for additional languages.*
 
 ---
@@ -91,13 +93,28 @@ Add the following configuration to your `claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The following **6 tools** are automatically available:
+Restart Claude Desktop. SynapseCode provides full **Model Context Protocol** support:
+
+#### 1. Tools:
 * `get_repo_map`: Generates an architectural overview with language and symbol category distributions.
 * `get_context_for_task`: Retrieves full target implementations and direct 1-hop skeletons under a strict token budget.
 * `get_symbol_callers`: Inspects all callers and dependents of a given symbol across the codebase to prevent regressions.
 * `get_symbol_definition`: Retrieves the full definition, signature, location, documentation, and body of any symbol.
 * `get_impact_analysis`: Calculates the blast radius of modifying a symbol (direct callers, transitive dependents, affected files, impacted test suites, risk severity `LOW` to `CRITICAL`).
 * `get_file_outline`: Returns a structured outline of all symbols defined in a file with line numbers and signatures.
+
+#### 2. Resources (`synapse://graph/...`):
+* `synapse://graph/summary`: High-level codebase metrics (total files, symbols, dependency edges).
+* `synapse://graph/languages`: Symbol counts broken down across all supported languages.
+* `synapse://graph/symbols`: Master index of all exported functions, classes, and interfaces.
+* `synapse://graph/file/{path}`: Formats a structured outline of all symbols in a file.
+* `synapse://graph/symbol/{name}`: Full definition, signature, docstring, and incoming callers of a symbol.
+
+#### 3. Guided Prompts:
+* `refactor_safe`: Step-by-step refactoring instruction with blast radius, callers, and dependency contracts.
+* `generate_unit_tests`: Prompts comprehensive unit test suites with mocks for external dependencies.
+* `audit_architecture`: Architectural coupling and dependency health check.
+* `explain_symbol`: Architectural role, upstream dependents, and downstream contracts of any symbol.
 
 ---
 
@@ -109,6 +126,9 @@ synapse index --path /path/to/repo
 
 # Force re-indexing all files, bypassing existing cache
 synapse index --force
+
+# Search codebase symbols with Okapi BM25 and Reciprocal Rank Fusion (RRF)
+synapse query "jwt token validation" --path /path/to/repo
 
 # Generate an architectural map under 2000 tokens
 synapse map --path /path/to/repo

@@ -5,6 +5,24 @@ All notable changes to SynapseCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-10
+
+### Added
+* **Okapi BM25 Lexical Engine & Smart Tokenizer**:
+  * Identifier-aware tokenizer with camelCase, PascalCase, snake_case, and acronym splitting (`JSONParser` -> `["json", "parser"]`).
+  * Suffix stemming for morphologically resilient keyword matching.
+  * Field-weighted Okapi BM25 scoring with exact match boost multipliers.
+  * **Reciprocal Rank Fusion (RRF)**: Blends BM25 lexical ranking with graph PageRank centrality ($k=60$).
+* **Multi-Language AST Support for C# and C/C++**:
+  * **C# (.NET / ASP.NET Core)**: File-scoped and block namespaces, using directives, ASP.NET Core attributes (`[ApiController]`, `[Route]`, `[HttpGet]`, `[Authorize]`, `[Inject]`), records, enums, interfaces, and async methods.
+  * **C / C++**: Header `#include` directives, namespaces, classes with multiple inheritance, structs, enum classes, templates, and methods.
+  * Build ignore rules for `.vs/`, `obj/`, `cmake-build-debug/`, `cmake-build-release/`.
+* **MCP Resources & Guided Prompts Protocols**:
+  * **Resources**: Static URIs (`synapse://graph/summary`, `synapse://graph/languages`, `synapse://graph/symbols`) and dynamic templates (`synapse://graph/file/{path}`, `synapse://graph/symbol/{name}`).
+  * **Prompts**: Built-in context-injected workflows for `refactor_safe`, `generate_unit_tests`, `audit_architecture`, and `explain_symbol`.
+* **CLI Enhancements**:
+  * Added `synapse query` command to inspect BM25, PageRank, and RRF rankings from the terminal.
+
 ## [1.1.0] - 2026-09-02
 
 ### Added
