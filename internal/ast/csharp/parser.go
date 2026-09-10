@@ -17,7 +17,7 @@ var (
 	nsFileRegex    = regexp.MustCompile(`^namespace\s+([a-zA-Z0-9_.]+);`)
 	usingRegex     = regexp.MustCompile(`^using\s+(?:static\s+)?([a-zA-Z0-9_.]+);`)
 	attrRegex      = regexp.MustCompile(`^\[.*?\]`)
-	typeRegex      = regexp.MustCompile(`^(?:(?:public|protected|private|internal|abstract|static|sealed|readonly|partial)\s+)*(class|interface|struct|record(?:\s+struct|\s+class)?|enum)\s+([a-zA-Z0-9_$]+)(?:<[^>]+>)?(?:\(.*?\))?(?:\s*:\s*([a-zA-Z0-9_$,\s<>]+?))?(?:\s*where\s+.*?)?(?:\s*\{|\s*$)`)
+	typeRegex      = regexp.MustCompile(`^(?:(?:public|protected|private|internal|abstract|static|sealed|readonly|partial)\s+)*(class|interface|struct|record(?:\s+struct|\s+class)?|enum)\s+([a-zA-Z0-9_$]+)(?:<[^>]+>)?(?:\(.*?\))?(?:\s*:\s*([a-zA-Z0-9_$,\s<>]+?))?(?:\s*where\s+.*?)?(?:\s*\{|\s*;|\s*$)`)
 	methodRegex    = regexp.MustCompile(`^(?:(?:public|protected|private|internal|static|async|override|virtual|abstract|sealed|extern)\s+)*(?:(?:Task|ValueTask|[a-zA-Z0-9_$<>,\[\]\?]+)\s+)+([a-zA-Z0-9_$]+)(?:<[^>]+>)?\s*\((.*?)\)(?:\s*where\s+.*?)?\s*\{?`)
 	ctorRegex      = regexp.MustCompile(`^(?:(?:public|protected|private|internal|static)\s+)?([a-zA-Z0-9_$]+)\s*\((.*?)\)(?:\s*:\s*(?:base|this)\(.*?\))?\s*\{?`)
 	callRegex      = regexp.MustCompile(`\b([a-zA-Z0-9_$]+(?:\.[a-zA-Z0-9_$]+)*)\s*\(`)
@@ -127,6 +127,8 @@ func (p *Parser) Parse(ctx context.Context, fileID model.FileID, filePath string
 			if idx := strings.Index(sig, "{"); idx != -1 {
 				sig = strings.TrimSpace(sig[:idx])
 			}
+			sig = strings.TrimSuffix(sig, ";")
+			sig = strings.TrimSpace(sig)
 			if len(pendingAttributes) > 0 {
 				sig = strings.Join(pendingAttributes, "\n") + "\n" + sig
 				pendingAttributes = nil
