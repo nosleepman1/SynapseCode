@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 1
+          submodules: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+
+      - name: Compile Multi-Platform Binaries
+        run: |
+          mkdir -p dist
+          # Linux AMD64
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/synapse-linux-amd64 ./cmd/synapse
+          tar -czf dist/synapse-linux-amd64.tar.gz -C dist synapse-linux-amd64
+          # Linux ARM64
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/synapse-linux-arm64 ./cmd/synapse
+          tar -czf dist/synapse-linux-arm64.tar.gz -C dist synapse-linux-arm64
+          # macOS AMD64
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/synapse-darwin-amd64 ./cmd/synapse
+          tar -czf dist/synapse-darwin-amd64.tar.gz -C dist synapse-darwin-amd64
+          # macOS ARM64 (Apple Silicon)
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/synapse-darwin-arm64 ./cmd/synapse
+          tar -czf dist/synapse-darwin-arm64.tar.gz -C dist synapse-darwin-arm64
+          # Windows AMD64
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/synapse.exe ./cmd/synapse
+          tar -czf dist/synapse-windows-amd64.tar.gz -C dist synapse.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "SynapseCode ${{ github.ref_name }} — BM25 Lexical Engine, 8 Multi-Language ASTs & Full MCP Protocol"
+          body: |
+            ![SynapseCode Architecture](https://raw.githubusercontent.com/nosleepman1/SynapseCode/main/assets/synapse_architecture_banner.jpg)
+
+            ## What is SynapseCode?
+            **SynapseCode** is an open-source, high-performance AST Code Graph and context optimization engine written in Go. It connects seamlessly to **Claude Desktop**, **Cursor**, and AI agents via the **Model Context Protocol (MCP)** to reduce prompt token consumption by **75% to 95%** while eliminating hallucinations.
+
+            ---
+
+            ## What's New in ${{ github.ref_name }}
+
+            ### 1. Extended Multi-Language & Framework Support (8 Languages)
+            - **PHP & Laravel**: Full support for Eloquent models, controllers, traits, and PHP 8+ attributes (`#[Route]`, `#[HttpGet]`).
+            - **Java & Spring Boot**: Annotations (`@RestController`, `@Service`, `@Autowired`, `@GetMapping`), Java records, interfaces, and enums.
+            - **C# (.NET / ASP.NET Core)**: Attribute routing, async task methods (`Task<T>`), records, enums, and interfaces.
+            - **C & C++**: `#include` resolution, namespaces, classes with multiple inheritance, templates, and structs.
+            - **Go, TypeScript/JavaScript, Python, and Rust**.
+
+            ### 2. Okapi BM25 Search Engine & Reciprocal Rank Fusion (RRF)
+            - Semantic tokenizer splitting camelCase, PascalCase, snake_case, and acronyms (`JSONParser` -> `["json", "parser"]`).
+            - Field-weighted Okapi BM25 lexical scoring with length normalization and suffix stemming.
+            - **Reciprocal Rank Fusion (RRF)** mathematically blending lexical relevance with topological PageRank centrality.
+
+            ### 3. Impact Analysis & Blast Radius (`get_impact_analysis`)
+            - Reverse BFS dependency traversal computing direct callers, transitive dependents, affected files, and impacted test suites to verify before refactoring.
+
+            ### 4. Persistent Disk Cache & Live File Watcher
+            - Sub-20ms incremental startup with SHA-256 integrity cache (`.synapse/cache.json`).
+            - Live event-driven background sync (`synapse mcp --watch`) using OS kernel hooks (`fsnotify`).
+
+            ### 5. Full Model Context Protocol Implementation
+            - **6 Native Tools**: `get_repo_map`, `get_context_for_task`, `get_symbol_callers`, `get_symbol_definition`, `get_impact_analysis`, `get_file_outline`.
+            - **Resources (`synapse://graph/...`)**: Virtual file system exploration (`summary`, `languages`, `symbols`, `file/{path}`, `symbol/{name}`).
+            - **Guided Prompts**: 1-click contextual workflows (`refactor_safe`, `generate_unit_tests`, `audit_architecture`, `explain_symbol`).
+
+            ---
+
+            ## Quickstart
+
+            ### 1. Installation via Go
+            ```bash
+            go install github.com/nosleepman1/SynapseCode/cmd/synapse@latest
+            ```
+
+            ### 2. Claude Desktop Integration (`claude_desktop_config.json`)
+            ```json
+            {
+              "mcpServers": {
+                "synapse-code": {
+                  "command": "synapse",
+                  "args": ["mcp", "--path", "/path/to/your/repository", "--watch"]
+                }
+              }
+            }
+            ```
+
+            ### 3. CLI Commands
+            ```bash
+            # Search symbols with BM25 + RRF
+            synapse query "jwt token verification" --path /path/to/repo
+
+            # Persist and inspect index
+            synapse index --path /path/to/repo
+
+            # Extract targeted context under token budget
+            synapse context "fix authentication workflow" --budget 3500
+            ```
+
+            ---
+            **Full Changelog**: https://github.com/nosleepman1/SynapseCode/blob/main/CHANGELOG.md
+          files: |
+            dist/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
